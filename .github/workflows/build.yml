@@ -47,10 +47,17 @@ jobs:
         run: |
           sed -i '/<application/i\    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.INTERNET" />' android/app/src/main/AndroidManifest.xml
 
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
       - name: APK derle
         run: |
           cd android
           chmod +x gradlew
+          echo "JAVA_HOME=$JAVA_HOME"
+          java -version
           ./gradlew assembleDebug --stacktrace > ../gradle_log.txt 2>&1
         continue-on-error: true
         id: gradle_build
