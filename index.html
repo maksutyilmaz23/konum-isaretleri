@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Konum İşaretleri</title>
+<style>
+  :root{
+    --bg:#F5F6F1;
+    --surface:#FFFFFF;
+    --ink:#1E2A22;
+    --muted:#66705F;
+    --line:#E1E4DA;
+    --moss:#2F6F4E;
+    --moss-dark:#204F37;
+    --rust:#B5482F;
+    --amber:#C98A2C;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; padding:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  body{padding-bottom:96px;}
+
+  header.app{
+    padding:22px 20px 16px;
+    background:var(--surface);
+    border-bottom:1px solid var(--line);
+    position:sticky; top:0; z-index:10;
+  }
+  .brand{display:flex; align-items:center; gap:12px;}
+  .pin-badge{
+    width:38px; height:38px; border-radius:50%;
+    background:var(--moss); flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 2px 0 var(--moss-dark);
+  }
+  .pin-badge svg{width:20px; height:20px;}
+  h1{font-size:19px; margin:0; letter-spacing:.2px; font-weight:800;}
+  .sub{margin:2px 0 0; font-size:12.5px; color:var(--muted);}
+
+  main{max-width:640px; margin:0 auto; padding:16px;}
+
+  .status-line{
+    font-size:12.5px; color:var(--muted); font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    padding:2px 20px 14px; max-width:640px; margin:0 auto;
+  }
+
+  .empty{
+    text-align:center; padding:60px 20px; color:var(--muted);
+  }
+  .empty .glyph{font-size:34px; margin-bottom:10px; opacity:.6;}
+  .empty p{margin:6px 0; font-size:14px; line-height:1.5;}
+
+  .card{
+    background:var(--surface); border:1px solid var(--line); border-radius:14px;
+    padding:14px 16px; margin-bottom:12px;
+  }
+  .card-top{display:flex; gap:12px; align-items:flex-start;}
+  .thumb{
+    width:52px; height:52px; border-radius:10px; object-fit:cover; flex-shrink:0;
+    border:1px solid var(--line); background:var(--bg);
+  }
+  .thumb-empty{
+    width:52px; height:52px; border-radius:10px; flex-shrink:0;
+    background:var(--bg); border:1px dashed var(--line);
+    display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:18px;
+  }
+  .card-info{flex:1; min-width:0;}
+  .card-name{font-size:15.5px; font-weight:700; margin:0 0 2px; word-break:break-word;}
+  .card-meta{font-size:12px; color:var(--muted); margin:0;}
+  .card-coords{
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-size:11px;
+    color:var(--muted); margin-top:3px;
+  }
+  .card-dist{
+    display:inline-block; margin-top:6px; font-size:11.5px; font-weight:700;
+    color:var(--moss-dark); background:#EAF3EC; padding:3px 8px; border-radius:20px;
+  }
+
+  .card-actions{display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;}
+  .btn{
+    border:none; border-radius:10px; padding:9px 12px; font-size:13px; font-weight:700;
+    cursor:pointer; display:flex; align-items:center; gap:6px;
+  }
+  .btn-go{background:var(--moss); color:#fff;}
+  .btn-share{background:#EFEDE6; color:var(--ink);}
+  .btn-edit{background:#EFEDE6; color:var(--ink);}
+  .btn-del{background:#FBEAE5; color:var(--rust);}
+  .btn:active{transform:scale(0.97);}
+
+  .fab{
+    position:fixed; bottom:22px; left:50%; transform:translateX(-50%);
+    background:var(--moss); color:#fff; border:none;
+    padding:15px 26px; border-radius:30px; font-size:15px; font-weight:800;
+    display:flex; align-items:center; gap:9px; box-shadow:0 6px 18px rgba(32,79,55,.35);
+    z-index:20;
+  }
+  .fab:active{transform:translateX(-50%) scale(.97);}
+  .fab.busy{opacity:.7;}
+  .fab svg{width:18px; height:18px;}
+
+  .overlay{
+    position:fixed; inset:0; background:rgba(20,26,20,.5);
+    display:flex; align-items:flex-end; z-index:50;
+  }
+  .sheet{
+    background:var(--surface); width:100%; border-radius:20px 20px 0 0;
+    padding:20px 20px 26px; max-height:88vh; overflow-y:auto;
+  }
+  .sheet h2{font-size:17px; margin:0 0 4px;}
+  .sheet .hint{font-size:12.5px; color:var(--muted); margin:0 0 16px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block; font-size:12.5px; font-weight:700; color:var(--muted); margin-bottom:6px;}
+  .field input[type=text]{
+    width:100%; border:1px solid var(--line); border-radius:10px; padding:11px 12px;
+    font-size:15px; font-family:inherit; background:var(--bg); color:var(--ink);
+  }
+  .field input[type=text]:focus{outline:2px solid var(--moss); outline-offset:1px;}
+  .coord-box{
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-size:12.5px;
+    background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:10px 12px;
+    color:var(--ink); line-height:1.6;
+  }
+  .photo-row{display:flex; gap:10px; align-items:center;}
+  .photo-preview{
+    width:64px; height:64px; border-radius:10px; object-fit:cover; border:1px solid var(--line);
+  }
+  .photo-btn{
+    border:1px dashed var(--line); background:var(--bg); border-radius:10px;
+    padding:10px 14px; font-size:13px; font-weight:700; color:var(--muted); cursor:pointer;
+  }
+  .sheet-actions{display:flex; gap:10px; margin-top:18px;}
+  .sheet-actions .btn{flex:1; justify-content:center; padding:12px; font-size:14px;}
+  .btn-cancel{background:#EFEDE6; color:var(--ink);}
+  .btn-save{background:var(--moss); color:#fff;}
+  .btn-save[disabled]{opacity:.5;}
+
+  .toast{
+    position:fixed; bottom:96px; left:50%; transform:translateX(-50%);
+    background:var(--ink); color:#fff; padding:10px 16px; border-radius:24px;
+    font-size:13px; z-index:80; opacity:0; transition:opacity .25s;
+    pointer-events:none; max-width:80%; text-align:center;
+  }
+  .toast.show{opacity:1;}
+
+  svg{display:block;}
+</style>
+</head>
+<body>
+
+<header class="app">
+  <div class="brand">
+    <div class="pin-badge">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 22s7-7.5 7-13a7 7 0 1 0-14 0c0 5.5 7 13 7 13z"></path>
+        <circle cx="12" cy="9" r="2.4"></circle>
+      </svg>
+    </div>
+    <div>
+      <h1>Konum İşaretleri</h1>
+      <p class="sub">Yeri işaretle, adını ver, tekrar bul</p>
+    </div>
+  </div>
+</header>
+
+<div class="status-line" id="statusLine">Konum bekleniyor…</div>
+
+<main>
+  <div id="list"></div>
+  <div class="empty" id="emptyState" style="display:none;">
+    <div class="glyph">📍</div>
+    <p><strong>Henüz işaretlenmiş yer yok.</strong></p>
+    <p>Aşağıdaki "Buradayım" butonuna basarak bulunduğun yeri kaydet.</p>
+  </div>
+</main>
+
+<button class="fab" id="fabBtn">
+  <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+  Buradayım
+</button>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+  var STORAGE_KEY = "konum_isaretleri_v1";
+  var listEl = document.getElementById("list");
+  var emptyEl = document.getElementById("emptyState");
+  var statusEl = document.getElementById("statusLine");
+  var fabBtn = document.getElementById("fabBtn");
+  var toastEl = document.getElementById("toast");
+
+  var currentPos = null; // {lat,lng,accuracy}
+  var pendingCapture = null; // capture waiting to be named/saved
+  var pendingPhoto = null; // dataURL
+
+  function load(){
+    try{
+      var raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    }catch(e){ return []; }
+  }
+  function save(items){
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(items)); }
+    catch(e){ toast("Kaydedilemedi: depolama dolu olabilir."); }
+  }
+  function toast(msg){
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(function(){ toastEl.classList.remove("show"); }, 2400);
+  }
+  function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+
+  function fmtDate(ts){
+    var d = new Date(ts);
+    return d.toLocaleDateString("tr-TR",{day:"2-digit",month:"long",year:"numeric"}) +
+      " · " + d.toLocaleTimeString("tr-TR",{hour:"2-digit",minute:"2-digit"});
+  }
+  function fmtCoord(lat,lng){
+    return lat.toFixed(5) + "°, " + lng.toFixed(5) + "°";
+  }
+  function haversine(lat1,lng1,lat2,lng2){
+    var R = 6371000;
+    var toRad = function(v){return v*Math.PI/180;};
+    var dLat = toRad(lat2-lat1), dLng = toRad(lng2-lng1);
+    var a = Math.sin(dLat/2)*Math.sin(dLat/2) +
+      Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)*Math.sin(dLng/2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+  function fmtDist(m){
+    if(m < 1000) return Math.round(m) + " m";
+    return (m/1000).toFixed(1) + " km";
+  }
+
+  function watchLiveLocation(){
+    if(!navigator.geolocation){ statusEl.textContent = "Bu cihaz konum servisini desteklemiyor."; return; }
+    navigator.geolocation.watchPosition(function(pos){
+      currentPos = {lat:pos.coords.latitude, lng:pos.coords.longitude, accuracy:pos.coords.accuracy};
+      statusEl.textContent = "Şu anki konum: " + fmtCoord(currentPos.lat,currentPos.lng) +
+        " (±" + Math.round(currentPos.accuracy) + " m)";
+      render();
+    }, function(err){
+      statusEl.textContent = "Konum alınamadı: " + geoErrorText(err);
+    }, {enableHighAccuracy:true, maximumAge:15000, timeout:20000});
+  }
+
+  function geoErrorText(err){
+    if(err.code === 1) return "izin verilmedi. Tarayıcı/uygulama ayarlarından konum izni açık olmalı.";
+    if(err.code === 2) return "konum tespit edilemedi.";
+    if(err.code === 3) return "zaman aşımı.";
+    return "bilinmeyen hata.";
+  }
+
+  function render(){
+    var items = load().sort(function(a,b){ return b.timestamp - a.timestamp; });
+    listEl.innerHTML = "";
+    emptyEl.style.display = items.length ? "none" : "block";
+    items.forEach(function(item){
+      listEl.appendChild(renderCard(item));
+    });
+  }
+
+  function renderCard(item){
+    var card = document.createElement("div");
+    card.className = "card";
+
+    var distHtml = "";
+    if(currentPos){
+      var d = haversine(currentPos.lat, currentPos.lng, item.lat, item.lng);
+      distHtml = '<span class="card-dist">' + fmtDist(d) + ' uzakta</span>';
+    }
+
+    card.innerHTML =
+      '<div class="card-top">' +
+        (item.photo
+          ? '<img class="thumb" src="'+item.photo+'" alt="">'
+          : '<div class="thumb-empty">📍</div>') +
+        '<div class="card-info">' +
+          '<p class="card-name">'+escapeHtml(item.name)+'</p>' +
+          '<p class="card-meta">'+fmtDate(item.timestamp)+'</p>' +
+          '<p class="card-coords">'+fmtCoord(item.lat,item.lng)+'</p>' +
+          distHtml +
+        '</div>' +
+      '</div>' +
+      '<div class="card-actions">' +
+        '<button class="btn btn-go" data-act="go">↗ Git</button>' +
+        '<button class="btn btn-share" data-act="share">⇪ Paylaş</button>' +
+        '<button class="btn btn-edit" data-act="edit">✎ Ad değiştir</button>' +
+        '<button class="btn btn-del" data-act="del">🗑 Sil</button>' +
+      '</div>';
+
+    card.querySelector('[data-act="go"]').addEventListener("click", function(){ goTo(item); });
+    card.querySelector('[data-act="share"]').addEventListener("click", function(){ shareItem(item); });
+    card.querySelector('[data-act="edit"]').addEventListener("click", function(){ editName(item); });
+    card.querySelector('[data-act="del"]').addEventListener("click", function(){ deleteItem(item); });
+
+    return card;
+  }
+
+  function escapeHtml(s){
+    var d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function goTo(item){
+    var geoUrl = "geo:" + item.lat + "," + item.lng + "?q=" + item.lat + "," + item.lng + "(" + encodeURIComponent(item.name) + ")";
+    var webUrl = "https://www.google.com/maps/dir/?api=1&destination=" + item.lat + "," + item.lng;
+    var win = window.open(geoUrl, "_blank");
+    setTimeout(function(){
+      window.open(webUrl, "_blank");
+    }, 400);
+  }
+
+  function shareItem(item){
+    var mapsLink = "https://www.google.com/maps?q=" + item.lat + "," + item.lng;
+    var text = item.name + "\n" + fmtCoord(item.lat, item.lng) + "\n" + mapsLink;
+    if(navigator.share){
+      var payload = {title: item.name, text: text};
+      if(item.photo && navigator.canShare){
+        dataUrlToFile(item.photo, item.name + ".jpg").then(function(file){
+          var withFile = {title:item.name, text:text, files:[file]};
+          if(navigator.canShare(withFile)){
+            navigator.share(withFile).catch(function(){});
+          } else {
+            navigator.share(payload).catch(function(){});
+          }
+        });
+      } else {
+        navigator.share(payload).catch(function(){});
+      }
+    } else if(navigator.clipboard){
+      navigator.clipboard.writeText(text).then(function(){
+        toast("Konum panoya kopyalandı.");
+      });
+    } else {
+      toast(text);
+    }
+  }
+
+  function dataUrlToFile(dataUrl, filename){
+    return fetch(dataUrl).then(function(res){ return res.blob(); })
+      .then(function(blob){ return new File([blob], filename, {type: blob.type}); });
+  }
+
+  function editName(item){
+    var newName = prompt("Yeni ad:", item.name);
+    if(newName === null) return;
+    newName = newName.trim();
+    if(!newName) return;
+    var items = load();
+    var idx = items.findIndex(function(i){ return i.id === item.id; });
+    if(idx > -1){ items[idx].name = newName; save(items); render(); toast("Ad güncellendi."); }
+  }
+
+  function deleteItem(item){
+    if(!confirm('"' + item.name + '" silinsin mi?')) return;
+    var items = load().filter(function(i){ return i.id !== item.id; });
+    save(items);
+    render();
+    toast("Silindi.");
+  }
+
+  // ---- Capture flow ----
+  fabBtn.addEventListener("click", function(){
+    if(!navigator.geolocation){ toast("Cihaz konum servisini desteklemiyor."); return; }
+    fabBtn.classList.add("busy");
+    fabBtn.textContent = "";
+    fabBtn.innerHTML = "Konum alınıyor…";
+    navigator.geolocation.getCurrentPosition(function(pos){
+      fabBtn.classList.remove("busy");
+      resetFab();
+      pendingCapture = {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+        timestamp: Date.now()
+      };
+      pendingPhoto = null;
+      openSheet();
+    }, function(err){
+      fabBtn.classList.remove("busy");
+      resetFab();
+      toast("Konum alınamadı: " + geoErrorText(err));
+    }, {enableHighAccuracy:true, timeout:20000, maximumAge:0});
+  });
+
+  function resetFab(){
+    fabBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> Buradayım';
+  }
+
+  function openSheet(){
+    var overlay = document.createElement("div");
+    overlay.className = "overlay";
+    overlay.innerHTML =
+      '<div class="sheet">' +
+        '<h2>Bu yeri kaydet</h2>' +
+        '<p class="hint">Tarih, saat ve koordinat otomatik alındı.</p>' +
+        '<div class="field">' +
+          '<label>Konum</label>' +
+          '<div class="coord-box">' +
+            fmtCoord(pendingCapture.lat, pendingCapture.lng) + '<br>' +
+            fmtDate(pendingCapture.timestamp) + '<br>' +
+            'Doğruluk: ±' + Math.round(pendingCapture.accuracy) + ' m' +
+          '</div>' +
+        '</div>' +
+        '<div class="field">' +
+          '<label>Bu yere bir ad ver</label>' +
+          '<input type="text" id="nameInput" placeholder="Örn. Okulun bahçesi, arabamı park ettiğim yer…" maxlength="60">' +
+        '</div>' +
+        '<div class="field">' +
+          '<label>Görsel (isteğe bağlı)</label>' +
+          '<div class="photo-row">' +
+            '<button type="button" class="photo-btn" id="photoPickBtn">📷 Görsel ekle</button>' +
+            '<img id="photoPreview" class="photo-preview" style="display:none;">' +
+          '</div>' +
+          '<input type="file" id="photoInput" accept="image/*" capture="environment" style="display:none;">' +
+        '</div>' +
+        '<div class="sheet-actions">' +
+          '<button class="btn btn-cancel" id="cancelBtn">Vazgeç</button>' +
+          '<button class="btn btn-save" id="saveBtn" disabled>Kaydet</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+
+    var nameInput = overlay.querySelector("#nameInput");
+    var saveBtn = overlay.querySelector("#saveBtn");
+    var photoInput = overlay.querySelector("#photoInput");
+    var photoPickBtn = overlay.querySelector("#photoPickBtn");
+    var photoPreview = overlay.querySelector("#photoPreview");
+
+    nameInput.addEventListener("input", function(){
+      saveBtn.disabled = nameInput.value.trim().length === 0;
+    });
+    nameInput.focus();
+
+    photoPickBtn.addEventListener("click", function(){ photoInput.click(); });
+    photoInput.addEventListener("change", function(){
+      var file = photoInput.files[0];
+      if(!file) return;
+      compressImage(file, function(dataUrl){
+        pendingPhoto = dataUrl;
+        photoPreview.src = dataUrl;
+        photoPreview.style.display = "block";
+        photoPickBtn.textContent = "📷 Değiştir";
+      });
+    });
+
+    overlay.querySelector("#cancelBtn").addEventListener("click", function(){
+      document.body.removeChild(overlay);
+      pendingCapture = null; pendingPhoto = null;
+    });
+
+    saveBtn.addEventListener("click", function(){
+      var name = nameInput.value.trim();
+      if(!name) return;
+      var items = load();
+      items.push({
+        id: uid(),
+        name: name,
+        lat: pendingCapture.lat,
+        lng: pendingCapture.lng,
+        accuracy: pendingCapture.accuracy,
+        timestamp: pendingCapture.timestamp,
+        photo: pendingPhoto
+      });
+      save(items);
+      document.body.removeChild(overlay);
+      pendingCapture = null; pendingPhoto = null;
+      render();
+      toast("Yer kaydedildi.");
+    });
+
+    overlay.addEventListener("click", function(e){
+      if(e.target === overlay){
+        document.body.removeChild(overlay);
+        pendingCapture = null; pendingPhoto = null;
+      }
+    });
+  }
+
+  function compressImage(file, cb){
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var img = new Image();
+      img.onload = function(){
+        var maxW = 900;
+        var scale = Math.min(1, maxW / img.width);
+        var canvas = document.createElement("canvas");
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        var ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        cb(canvas.toDataURL("image/jpeg", 0.72));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // init
+  render();
+  watchLiveLocation();
+})();
+</script>
+</body>
+</html>
