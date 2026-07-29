@@ -7,6 +7,9 @@ on:
       - 'index.html'
       - 'icon.png'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -48,7 +51,23 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --stacktrace > ../gradle_log.txt 2>&1
+        continue-on-error: true
+        id: gradle_build
+
+      - name: Log'u kaydet (hata durumunda)
+        if: steps.gradle_build.outcome == 'failure'
+        run: |
+          tail -c 60000 gradle_log.txt > gradle_log_tail.txt
+          git config user.email "build-bot@example.com"
+          git config user.name "build-bot"
+          git add -f gradle_log_tail.txt
+          git commit -m "build hata logu [skip ci]"
+          git push
+
+      - name: Başarısızsa iş burada durdurulur
+        if: steps.gradle_build.outcome == 'failure'
+        run: exit 1
 
       - name: APK'yı yükle
         uses: actions/upload-artifact@v4
