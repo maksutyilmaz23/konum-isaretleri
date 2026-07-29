@@ -47,6 +47,11 @@ jobs:
         run: |
           sed -i '/<application/i\    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.INTERNET" />' android/app/src/main/AndroidManifest.xml
 
+      - name: Kotlin çakışan sınıf düzeltmesi
+        run: |
+          sed -i '/allprojects {/a\    configurations.all {\n        exclude group: "org.jetbrains.kotlin", module: "kotlin-stdlib-jdk7"\n        exclude group: "org.jetbrains.kotlin", module: "kotlin-stdlib-jdk8"\n    }' android/build.gradle
+          cat android/build.gradle
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
