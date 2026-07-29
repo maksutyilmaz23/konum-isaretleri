@@ -86,3 +86,13 @@ jobs:
         with:
           name: konum-isaretleri-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Release olarak yayınla
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk konum-isaretleri.apk
+          TAG="build-${{ github.run_number }}"
+          gh release create "$TAG" konum-isaretleri.apk \
+            --title "Konum İşaretleri - build ${{ github.run_number }}" \
+            --notes "Otomatik derleme"
