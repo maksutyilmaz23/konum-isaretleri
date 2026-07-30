@@ -39,12 +39,27 @@
   h1{font-size:19px; margin:0; letter-spacing:.2px; font-weight:800;}
   .sub{margin:2px 0 0; font-size:12.5px; color:var(--muted);}
 
+  .tabs{display:flex; gap:8px; padding:12px 16px 0; max-width:640px; margin:0 auto;}
+  .tab-btn{
+    flex:1; padding:10px; border:none; border-radius:10px; background:#EFEDE6;
+    color:var(--muted); font-weight:700; font-size:13.5px; cursor:pointer;
+  }
+  .tab-btn.active{background:var(--moss); color:#fff;}
+
   main{max-width:640px; margin:0 auto; padding:16px;}
 
   .status-line{
     font-size:12.5px; color:var(--muted); font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-    padding:2px 20px 14px; max-width:640px; margin:0 auto;
+    padding:10px 20px 0; max-width:640px; margin:0 auto;
   }
+
+  .rec-banner{
+    max-width:640px; margin:10px auto 0; background:#FBEAE5; color:var(--rust);
+    padding:11px 16px; font-size:13px; font-weight:700; display:flex; align-items:center; gap:9px;
+    border-radius:12px;
+  }
+  .rec-dot{width:9px; height:9px; border-radius:50%; background:var(--rust); flex-shrink:0; animation:pulse 1.2s infinite;}
+  @keyframes pulse{0%{opacity:1;}50%{opacity:.25;}100%{opacity:1;}}
 
   .empty{
     text-align:center; padding:60px 20px; color:var(--muted);
@@ -68,7 +83,7 @@
   }
   .card-info{flex:1; min-width:0;}
   .card-name{font-size:15.5px; font-weight:700; margin:0 0 2px; word-break:break-word;}
-  .card-meta{font-size:12px; color:var(--muted); margin:0;}
+  .card-meta{font-size:12px; color:var(--muted); margin:2px 0 0;}
   .card-coords{
     font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-size:11px;
     color:var(--muted); margin-top:3px;
@@ -94,10 +109,11 @@
     background:var(--moss); color:#fff; border:none;
     padding:15px 26px; border-radius:30px; font-size:15px; font-weight:800;
     display:flex; align-items:center; gap:9px; box-shadow:0 6px 18px rgba(32,79,55,.35);
-    z-index:20;
+    z-index:20; white-space:nowrap;
   }
   .fab:active{transform:translateX(-50%) scale(.97);}
   .fab.busy{opacity:.7;}
+  .fab.recording{background:var(--rust); box-shadow:0 6px 18px rgba(181,72,47,.35);}
   .fab svg{width:18px; height:18px;}
 
   .overlay{
@@ -136,6 +152,14 @@
   .btn-save{background:var(--moss); color:#fff;}
   .btn-save[disabled]{opacity:.5;}
 
+  .format-btn{
+    width:100%; text-align:left; border:1px solid var(--line); background:var(--bg);
+    border-radius:12px; padding:14px 16px; margin-bottom:10px; font-size:14.5px; font-weight:700;
+    color:var(--ink); cursor:pointer; display:flex; align-items:center; justify-content:space-between;
+  }
+  .format-btn small{display:block; font-weight:400; color:var(--muted); font-size:12px; margin-top:2px;}
+  .format-btn:active{transform:scale(.98);}
+
   .toast{
     position:fixed; bottom:96px; left:50%; transform:translateX(-50%);
     background:var(--ink); color:#fff; padding:10px 16px; border-radius:24px;
@@ -159,12 +183,21 @@
     </div>
     <div>
       <h1>Konum İşaretleri</h1>
-      <p class="sub">Yeri işaretle, adını ver, tekrar bul</p>
+      <p class="sub">Yeri işaretle, rotanı kaydet, tekrar bul</p>
     </div>
   </div>
 </header>
 
+<div class="tabs">
+  <button class="tab-btn active" id="tabYerler">📍 Yerler</button>
+  <button class="tab-btn" id="tabRotalar">🧭 Rotalar</button>
+</div>
+
 <div class="status-line" id="statusLine">Konum bekleniyor…</div>
+<div class="rec-banner" id="recBanner" style="display:none;">
+  <span class="rec-dot"></span>
+  <span id="recStats">Rota kaydediliyor…</span>
+</div>
 
 <main>
   <div id="list"></div>
@@ -172,6 +205,13 @@
     <div class="glyph">📍</div>
     <p><strong>Henüz işaretlenmiş yer yok.</strong></p>
     <p>Aşağıdaki "Buradayım" butonuna basarak bulunduğun yeri kaydet.</p>
+  </div>
+
+  <div id="routesList" style="display:none;"></div>
+  <div class="empty" id="routesEmptyState" style="display:none;">
+    <div class="glyph">🧭</div>
+    <p><strong>Henüz kaydedilmiş rota yok.</strong></p>
+    <p>Aşağıdaki "Rota Başlat" butonuna basıp yürüyüşe/yola çık, bitirince "Durdur ve Kaydet" ile kaydet.</p>
   </div>
 </main>
 
@@ -185,32 +225,46 @@
 <script>
 (function(){
   "use strict";
-  var STORAGE_KEY = "konum_isaretleri_v1";
+  var PLACES_KEY = "konum_isaretleri_v1";
+  var ROUTES_KEY = "rotalar_v1";
+
   var listEl = document.getElementById("list");
   var emptyEl = document.getElementById("emptyState");
+  var routesListEl = document.getElementById("routesList");
+  var routesEmptyEl = document.getElementById("routesEmptyState");
   var statusEl = document.getElementById("statusLine");
   var fabBtn = document.getElementById("fabBtn");
   var toastEl = document.getElementById("toast");
+  var recBanner = document.getElementById("recBanner");
+  var recStatsEl = document.getElementById("recStats");
+  var tabYerlerBtn = document.getElementById("tabYerler");
+  var tabRotalarBtn = document.getElementById("tabRotalar");
 
-  var currentPos = null; // {lat,lng,accuracy}
-  var pendingCapture = null; // capture waiting to be named/saved
-  var pendingPhoto = null; // dataURL
+  var currentPos = null;
+  var pendingCapture = null;
+  var pendingPhoto = null;
+  var activeTab = "yerler";
+  var recording = null; // {points, startTime, watchId, timerId}
 
-  function load(){
-    try{
-      var raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : [];
-    }catch(e){ return []; }
+  // ---------- storage ----------
+  function load(){ return loadKey(PLACES_KEY); }
+  function save(items){ saveKey(PLACES_KEY, items); }
+  function loadRoutes(){ return loadKey(ROUTES_KEY); }
+  function saveRoutes(items){ saveKey(ROUTES_KEY, items); }
+  function loadKey(key){
+    try{ var raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : []; }
+    catch(e){ return []; }
   }
-  function save(items){
-    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(items)); }
+  function saveKey(key, items){
+    try{ localStorage.setItem(key, JSON.stringify(items)); }
     catch(e){ toast("Kaydedilemedi: depolama dolu olabilir."); }
   }
+
   function toast(msg){
     toastEl.textContent = msg;
     toastEl.classList.add("show");
     clearTimeout(toastEl._t);
-    toastEl._t = setTimeout(function(){ toastEl.classList.remove("show"); }, 2400);
+    toastEl._t = setTimeout(function(){ toastEl.classList.remove("show"); }, 2600);
   }
   function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
 
@@ -232,19 +286,37 @@
   }
   function fmtDist(m){
     if(m < 1000) return Math.round(m) + " m";
-    return (m/1000).toFixed(1) + " km";
+    return (m/1000).toFixed(2) + " km";
   }
-
-  function watchLiveLocation(){
-    if(!navigator.geolocation){ statusEl.textContent = "Bu cihaz konum servisini desteklemiyor."; return; }
-    navigator.geolocation.watchPosition(function(pos){
-      currentPos = {lat:pos.coords.latitude, lng:pos.coords.longitude, accuracy:pos.coords.accuracy};
-      statusEl.textContent = "Şu anki konum: " + fmtCoord(currentPos.lat,currentPos.lng) +
-        " (±" + Math.round(currentPos.accuracy) + " m)";
-      render();
-    }, function(err){
-      statusEl.textContent = "Konum alınamadı: " + geoErrorText(err);
-    }, {enableHighAccuracy:true, maximumAge:15000, timeout:20000});
+  function fmtDuration(ms){
+    var totalSec = Math.max(0, Math.round(ms/1000));
+    var h = Math.floor(totalSec/3600);
+    var m = Math.floor((totalSec%3600)/60);
+    var s = totalSec%60;
+    var mm = (m<10?"0":"")+m, ss = (s<10?"0":"")+s;
+    if(h>0) return h+":"+mm+":"+ss;
+    return mm+":"+ss;
+  }
+  function escapeHtml(s){
+    var d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+  }
+  function escapeXml(s){
+    return String(s).replace(/[<>&'"]/g, function(c){
+      return {"<":"&lt;",">":"&gt;","&":"&amp;","'":"&apos;",'"':"&quot;"}[c];
+    });
+  }
+  function safeFilename(name){
+    var cleaned = String(name).replace(/[^\p{L}\p{N}\-_ ]/gu, "").trim().replace(/\s+/g, "_");
+    return cleaned || "rota";
+  }
+  function routeDistance(points){
+    var total = 0;
+    for(var i=1;i<points.length;i++){
+      total += haversine(points[i-1].lat, points[i-1].lng, points[i].lat, points[i].lng);
+    }
+    return total;
   }
 
   function geoErrorText(err){
@@ -254,25 +326,65 @@
     return "bilinmeyen hata.";
   }
 
+  function watchLiveLocation(){
+    if(!navigator.geolocation){ statusEl.textContent = "Bu cihaz konum servisini desteklemiyor."; return; }
+    navigator.geolocation.watchPosition(function(pos){
+      currentPos = {lat:pos.coords.latitude, lng:pos.coords.longitude, accuracy:pos.coords.accuracy};
+      statusEl.textContent = "Şu anki konum: " + fmtCoord(currentPos.lat,currentPos.lng) +
+        " (±" + Math.round(currentPos.accuracy) + " m)";
+      if(activeTab === "yerler") render();
+    }, function(err){
+      statusEl.textContent = "Konum alınamadı: " + geoErrorText(err);
+    }, {enableHighAccuracy:true, maximumAge:15000, timeout:20000});
+  }
+
+  // ---------- tabs ----------
+  function setActiveTab(tab){
+    activeTab = tab;
+    tabYerlerBtn.classList.toggle("active", tab === "yerler");
+    tabRotalarBtn.classList.toggle("active", tab === "rotalar");
+    listEl.style.display = tab === "yerler" ? "" : "none";
+    routesListEl.style.display = tab === "rotalar" ? "" : "none";
+    if(tab === "yerler") render(); else renderRoutes();
+    updateFab();
+  }
+  tabYerlerBtn.addEventListener("click", function(){ setActiveTab("yerler"); });
+  tabRotalarBtn.addEventListener("click", function(){ setActiveTab("rotalar"); });
+
+  function updateFab(){
+    if(activeTab === "yerler"){
+      fabBtn.classList.remove("recording");
+      resetFab();
+    } else {
+      if(recording){
+        fabBtn.classList.add("recording");
+        fabBtn.innerHTML = "⏹ Durdur ve Kaydet";
+      } else {
+        fabBtn.classList.remove("recording");
+        fabBtn.innerHTML = "▶ Rota Başlat";
+      }
+    }
+  }
+  function resetFab(){
+    fabBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> Buradayım';
+  }
+
+  // ---------- render: places ----------
   function render(){
     var items = load().sort(function(a,b){ return b.timestamp - a.timestamp; });
     listEl.innerHTML = "";
     emptyEl.style.display = items.length ? "none" : "block";
-    items.forEach(function(item){
-      listEl.appendChild(renderCard(item));
-    });
+    items.forEach(function(item){ listEl.appendChild(renderCard(item)); });
   }
 
   function renderCard(item){
     var card = document.createElement("div");
     card.className = "card";
-
     var distHtml = "";
     if(currentPos){
       var d = haversine(currentPos.lat, currentPos.lng, item.lat, item.lng);
       distHtml = '<span class="card-dist">' + fmtDist(d) + ' uzakta</span>';
     }
-
     card.innerHTML =
       '<div class="card-top">' +
         (item.photo
@@ -291,28 +403,18 @@
         '<button class="btn btn-edit" data-act="edit">✎ Ad değiştir</button>' +
         '<button class="btn btn-del" data-act="del">🗑 Sil</button>' +
       '</div>';
-
     card.querySelector('[data-act="go"]').addEventListener("click", function(){ goTo(item); });
     card.querySelector('[data-act="share"]').addEventListener("click", function(){ shareItem(item); });
     card.querySelector('[data-act="edit"]').addEventListener("click", function(){ editName(item); });
     card.querySelector('[data-act="del"]').addEventListener("click", function(){ deleteItem(item); });
-
     return card;
-  }
-
-  function escapeHtml(s){
-    var d = document.createElement("div");
-    d.textContent = s;
-    return d.innerHTML;
   }
 
   function goTo(item){
     var geoUrl = "geo:" + item.lat + "," + item.lng + "?q=" + item.lat + "," + item.lng + "(" + encodeURIComponent(item.name) + ")";
     var webUrl = "https://www.google.com/maps/dir/?api=1&destination=" + item.lat + "," + item.lng;
-    var win = window.open(geoUrl, "_blank");
-    setTimeout(function(){
-      window.open(webUrl, "_blank");
-    }, 400);
+    window.open(geoUrl, "_blank");
+    setTimeout(function(){ window.open(webUrl, "_blank"); }, 400);
   }
 
   function shareItem(item){
@@ -323,19 +425,14 @@
       if(item.photo && navigator.canShare){
         dataUrlToFile(item.photo, item.name + ".jpg").then(function(file){
           var withFile = {title:item.name, text:text, files:[file]};
-          if(navigator.canShare(withFile)){
-            navigator.share(withFile).catch(function(){});
-          } else {
-            navigator.share(payload).catch(function(){});
-          }
+          if(navigator.canShare(withFile)){ navigator.share(withFile).catch(function(){}); }
+          else { navigator.share(payload).catch(function(){}); }
         });
       } else {
         navigator.share(payload).catch(function(){});
       }
     } else if(navigator.clipboard){
-      navigator.clipboard.writeText(text).then(function(){
-        toast("Konum panoya kopyalandı.");
-      });
+      navigator.clipboard.writeText(text).then(function(){ toast("Konum panoya kopyalandı."); });
     } else {
       toast(text);
     }
@@ -364,55 +461,45 @@
     toast("Silindi.");
   }
 
-  // ---- Capture flow ----
-  fabBtn.addEventListener("click", function(){
+  // ---------- capture place flow ----------
+  function capturePlace(){
     if(!navigator.geolocation){ toast("Cihaz konum servisini desteklemiyor."); return; }
     fabBtn.classList.add("busy");
-    fabBtn.textContent = "";
     fabBtn.innerHTML = "Konum alınıyor…";
     navigator.geolocation.getCurrentPosition(function(pos){
       fabBtn.classList.remove("busy");
       resetFab();
       pendingCapture = {
-        lat: pos.coords.latitude,
-        lng: pos.coords.longitude,
-        accuracy: pos.coords.accuracy,
-        timestamp: Date.now()
+        lat: pos.coords.latitude, lng: pos.coords.longitude,
+        accuracy: pos.coords.accuracy, timestamp: Date.now()
       };
       pendingPhoto = null;
-      openSheet();
+      openPlaceSheet();
     }, function(err){
       fabBtn.classList.remove("busy");
       resetFab();
       toast("Konum alınamadı: " + geoErrorText(err));
     }, {enableHighAccuracy:true, timeout:20000, maximumAge:0});
-  });
-
-  function resetFab(){
-    fabBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> Buradayım';
   }
 
-  function openSheet(){
+  function openPlaceSheet(){
     var overlay = document.createElement("div");
     overlay.className = "overlay";
     overlay.innerHTML =
       '<div class="sheet">' +
         '<h2>Bu yeri kaydet</h2>' +
         '<p class="hint">Tarih, saat ve koordinat otomatik alındı.</p>' +
-        '<div class="field">' +
-          '<label>Konum</label>' +
+        '<div class="field"><label>Konum</label>' +
           '<div class="coord-box">' +
             fmtCoord(pendingCapture.lat, pendingCapture.lng) + '<br>' +
             fmtDate(pendingCapture.timestamp) + '<br>' +
             'Doğruluk: ±' + Math.round(pendingCapture.accuracy) + ' m' +
           '</div>' +
         '</div>' +
-        '<div class="field">' +
-          '<label>Bu yere bir ad ver</label>' +
+        '<div class="field"><label>Bu yere bir ad ver</label>' +
           '<input type="text" id="nameInput" placeholder="Örn. Okulun bahçesi, arabamı park ettiğim yer…" maxlength="60">' +
         '</div>' +
-        '<div class="field">' +
-          '<label>Görsel (isteğe bağlı)</label>' +
+        '<div class="field"><label>Görsel (isteğe bağlı)</label>' +
           '<div class="photo-row">' +
             '<button type="button" class="photo-btn" id="photoPickBtn">📷 Görsel ekle</button>' +
             '<img id="photoPreview" class="photo-preview" style="display:none;">' +
@@ -432,9 +519,7 @@
     var photoPickBtn = overlay.querySelector("#photoPickBtn");
     var photoPreview = overlay.querySelector("#photoPreview");
 
-    nameInput.addEventListener("input", function(){
-      saveBtn.disabled = nameInput.value.trim().length === 0;
-    });
+    nameInput.addEventListener("input", function(){ saveBtn.disabled = nameInput.value.trim().length === 0; });
     nameInput.focus();
 
     photoPickBtn.addEventListener("click", function(){ photoInput.click(); });
@@ -450,8 +535,7 @@
     });
 
     overlay.querySelector("#cancelBtn").addEventListener("click", function(){
-      document.body.removeChild(overlay);
-      pendingCapture = null; pendingPhoto = null;
+      document.body.removeChild(overlay); pendingCapture = null; pendingPhoto = null;
     });
 
     saveBtn.addEventListener("click", function(){
@@ -459,13 +543,8 @@
       if(!name) return;
       var items = load();
       items.push({
-        id: uid(),
-        name: name,
-        lat: pendingCapture.lat,
-        lng: pendingCapture.lng,
-        accuracy: pendingCapture.accuracy,
-        timestamp: pendingCapture.timestamp,
-        photo: pendingPhoto
+        id: uid(), name: name, lat: pendingCapture.lat, lng: pendingCapture.lng,
+        accuracy: pendingCapture.accuracy, timestamp: pendingCapture.timestamp, photo: pendingPhoto
       });
       save(items);
       document.body.removeChild(overlay);
@@ -475,10 +554,7 @@
     });
 
     overlay.addEventListener("click", function(e){
-      if(e.target === overlay){
-        document.body.removeChild(overlay);
-        pendingCapture = null; pendingPhoto = null;
-      }
+      if(e.target === overlay){ document.body.removeChild(overlay); pendingCapture = null; pendingPhoto = null; }
     });
   }
 
@@ -501,8 +577,313 @@
     reader.readAsDataURL(file);
   }
 
-  // init
+  // ---------- routes: render ----------
+  function renderRoutes(){
+    var items = loadRoutes().sort(function(a,b){ return b.timestamp - a.timestamp; });
+    routesListEl.innerHTML = "";
+    routesEmptyEl.style.display = items.length ? "none" : "block";
+    items.forEach(function(item){ routesListEl.appendChild(renderRouteCard(item)); });
+  }
+
+  function renderRouteCard(route){
+    var card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML =
+      '<p class="card-name">🧭 '+escapeHtml(route.name)+'</p>' +
+      '<p class="card-meta">'+fmtDate(route.timestamp)+'</p>' +
+      '<p class="card-meta">'+fmtDist(route.distance)+' · '+fmtDuration(route.duration)+' · '+route.points.length+' nokta</p>' +
+      '<div class="card-actions">' +
+        '<button class="btn btn-share" data-act="share">⇪ Paylaş</button>' +
+        '<button class="btn btn-edit" data-act="edit">✎ Ad değiştir</button>' +
+        '<button class="btn btn-del" data-act="del">🗑 Sil</button>' +
+      '</div>';
+    card.querySelector('[data-act="share"]').addEventListener("click", function(){ openShareFormatSheet(route); });
+    card.querySelector('[data-act="edit"]').addEventListener("click", function(){ editRouteName(route); });
+    card.querySelector('[data-act="del"]').addEventListener("click", function(){ deleteRoute(route); });
+    return card;
+  }
+
+  function editRouteName(route){
+    var newName = prompt("Yeni ad:", route.name);
+    if(newName === null) return;
+    newName = newName.trim();
+    if(!newName) return;
+    var items = loadRoutes();
+    var idx = items.findIndex(function(i){ return i.id === route.id; });
+    if(idx > -1){ items[idx].name = newName; saveRoutes(items); renderRoutes(); toast("Ad güncellendi."); }
+  }
+
+  function deleteRoute(route){
+    if(!confirm('"' + route.name + '" rotası silinsin mi?')) return;
+    var items = loadRoutes().filter(function(i){ return i.id !== route.id; });
+    saveRoutes(items);
+    renderRoutes();
+    toast("Silindi.");
+  }
+
+  // ---------- recording ----------
+  function toggleRecording(){
+    if(recording) stopRecording(); else startRecording();
+  }
+
+  function startRecording(){
+    if(!navigator.geolocation){ toast("Cihaz konum servisini desteklemiyor."); return; }
+    recording = {points: [], startTime: Date.now(), watchId: null, timerId: null};
+    recBanner.style.display = "flex";
+    updateFab();
+    updateRecBanner();
+    recording.watchId = navigator.geolocation.watchPosition(function(pos){
+      if(!recording) return;
+      var p = {lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now()};
+      var last = recording.points[recording.points.length - 1];
+      if(!last || haversine(last.lat, last.lng, p.lat, p.lng) > 8 || (p.ts - last.ts) > 15000){
+        recording.points.push(p);
+      }
+      currentPos = {lat: p.lat, lng: p.lng, accuracy: pos.coords.accuracy};
+      updateRecBanner();
+    }, function(err){
+      toast("Konum hatası: " + geoErrorText(err));
+    }, {enableHighAccuracy:true, maximumAge:2000, timeout:20000});
+    recording.timerId = setInterval(updateRecBanner, 1000);
+  }
+
+  function updateRecBanner(){
+    if(!recording) return;
+    var elapsed = Date.now() - recording.startTime;
+    var dist = routeDistance(recording.points);
+    recStatsEl.textContent = fmtDuration(elapsed) + " · " + fmtDist(dist) + " · " + recording.points.length + " nokta";
+  }
+
+  function stopRecording(){
+    if(!recording) return;
+    navigator.geolocation.clearWatch(recording.watchId);
+    clearInterval(recording.timerId);
+    var points = recording.points;
+    var startTime = recording.startTime;
+    var duration = Date.now() - startTime;
+    recBanner.style.display = "none";
+    recording = null;
+    updateFab();
+    if(points.length < 2){
+      toast("Rota kaydı çok kısa, kaydedilmedi.");
+      return;
+    }
+    openRouteSaveSheet(points, startTime, duration);
+  }
+
+  function openRouteSaveSheet(points, startTime, duration){
+    var dist = routeDistance(points);
+    var overlay = document.createElement("div");
+    overlay.className = "overlay";
+    overlay.innerHTML =
+      '<div class="sheet">' +
+        '<h2>Bu rotayı kaydet</h2>' +
+        '<p class="hint">Mesafe, süre ve nokta sayısı otomatik hesaplandı.</p>' +
+        '<div class="field"><label>Özet</label>' +
+          '<div class="coord-box">' +
+            fmtDate(startTime) + '<br>' +
+            fmtDist(dist) + ' · ' + fmtDuration(duration) + ' · ' + points.length + ' nokta' +
+          '</div>' +
+        '</div>' +
+        '<div class="field"><label>Bu rotaya bir ad ver</label>' +
+          '<input type="text" id="routeNameInput" placeholder="Örn. Sabah yürüyüşü, okul dönüşü…" maxlength="60">' +
+        '</div>' +
+        '<div class="sheet-actions">' +
+          '<button class="btn btn-cancel" id="routeCancelBtn">Vazgeç</button>' +
+          '<button class="btn btn-save" id="routeSaveBtn" disabled>Kaydet</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+
+    var nameInput = overlay.querySelector("#routeNameInput");
+    var saveBtn = overlay.querySelector("#routeSaveBtn");
+    nameInput.addEventListener("input", function(){ saveBtn.disabled = nameInput.value.trim().length === 0; });
+    nameInput.focus();
+
+    overlay.querySelector("#routeCancelBtn").addEventListener("click", function(){
+      document.body.removeChild(overlay);
+      toast("Rota kaydedilmedi.");
+    });
+
+    saveBtn.addEventListener("click", function(){
+      var name = nameInput.value.trim();
+      if(!name) return;
+      var items = loadRoutes();
+      items.push({
+        id: uid(), name: name, timestamp: startTime, duration: duration,
+        distance: dist, points: points
+      });
+      saveRoutes(items);
+      document.body.removeChild(overlay);
+      renderRoutes();
+      toast("Rota kaydedildi.");
+    });
+
+    overlay.addEventListener("click", function(e){
+      if(e.target === overlay){ document.body.removeChild(overlay); toast("Rota kaydedilmedi."); }
+    });
+  }
+
+  // ---------- route export: GPX / KML / KMZ ----------
+  function toGPX(route){
+    var pts = route.points.map(function(p){
+      return '<trkpt lat="'+p.lat+'" lon="'+p.lng+'"><time>'+new Date(p.ts).toISOString()+'</time></trkpt>';
+    }).join("");
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' +
+      '<gpx version="1.1" creator="Konum Isaretleri" xmlns="http://www.topografix.com/GPX/1/1">\n' +
+      '<trk><name>'+escapeXml(route.name)+'</name><trkseg>'+pts+'</trkseg></trk>\n' +
+      '</gpx>';
+  }
+
+  function toKML(route){
+    var coords = route.points.map(function(p){ return p.lng+","+p.lat+",0"; }).join(" ");
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' +
+      '<kml xmlns="http://www.opengis.net/kml/2.2"><Document>\n' +
+      '<name>'+escapeXml(route.name)+'</name>\n' +
+      '<Placemark><name>'+escapeXml(route.name)+'</name>\n' +
+      '<Style><LineStyle><color>ff4e6f2f</color><width>4</width></LineStyle></Style>\n' +
+      '<LineString><tessellate>1</tessellate><coordinates>'+coords+'</coordinates></LineString>\n' +
+      '</Placemark></Document></kml>';
+  }
+
+  // ---- minimal store-only ZIP writer (for KMZ) ----
+  var CRC_TABLE = (function(){
+    var table = [];
+    for(var n=0;n<256;n++){
+      var c = n;
+      for(var k=0;k<8;k++){ c = (c&1) ? (0xEDB88320 ^ (c>>>1)) : (c>>>1); }
+      table[n] = c;
+    }
+    return table;
+  })();
+  function crc32(bytes){
+    var crc = 0 ^ (-1);
+    for(var i=0;i<bytes.length;i++){ crc = (crc>>>8) ^ CRC_TABLE[(crc ^ bytes[i]) & 0xFF]; }
+    return (crc ^ (-1)) >>> 0;
+  }
+  function u16(v){ return [v & 0xFF, (v>>8) & 0xFF]; }
+  function u32(v){ return [v & 0xFF, (v>>8) & 0xFF, (v>>16) & 0xFF, (v>>24) & 0xFF]; }
+  function toDosTime(d){ return (d.getHours()<<11) | (d.getMinutes()<<5) | Math.floor(d.getSeconds()/2); }
+  function toDosDate(d){ return ((d.getFullYear()-1980)<<9) | ((d.getMonth()+1)<<5) | d.getDate(); }
+
+  function createZip(files, date){
+    date = date || new Date();
+    var dosTime = toDosTime(date), dosDate = toDosDate(date);
+    var localParts = [], centralParts = [], offset = 0;
+    files.forEach(function(f){
+      var nameBytes = new TextEncoder().encode(f.name);
+      var data = f.data;
+      var crc = crc32(data);
+      var localHeader = new Uint8Array(
+        [].concat(u32(0x04034b50), u16(20), u16(0), u16(0), u16(dosTime), u16(dosDate),
+          u32(crc), u32(data.length), u32(data.length), u16(nameBytes.length), u16(0))
+      );
+      localParts.push(localHeader, nameBytes, data);
+
+      var centralHeader = new Uint8Array(
+        [].concat(u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(dosTime), u16(dosDate),
+          u32(crc), u32(data.length), u32(data.length), u16(nameBytes.length), u16(0), u16(0),
+          u16(0), u16(0), u32(0), u32(offset))
+      );
+      centralParts.push(centralHeader, nameBytes);
+
+      offset += localHeader.length + nameBytes.length + data.length;
+    });
+
+    var centralSize = 0;
+    centralParts.forEach(function(p){ centralSize += p.length; });
+    var centralOffset = offset;
+    var eocd = new Uint8Array(
+      [].concat(u32(0x06054b50), u16(0), u16(0), u16(files.length), u16(files.length),
+        u32(centralSize), u32(centralOffset), u16(0))
+    );
+
+    var total = offset + centralSize + eocd.length;
+    var out = new Uint8Array(total);
+    var pos = 0;
+    localParts.forEach(function(p){ out.set(p, pos); pos += p.length; });
+    centralParts.forEach(function(p){ out.set(p, pos); pos += p.length; });
+    out.set(eocd, pos);
+    return out;
+  }
+
+  function toKMZBlob(route){
+    var kmlBytes = new TextEncoder().encode(toKML(route));
+    var zipBytes = createZip([{name:"doc.kml", data: kmlBytes}], new Date(route.timestamp));
+    return new Blob([zipBytes], {type:"application/vnd.google-earth.kmz"});
+  }
+
+  function openShareFormatSheet(route){
+    var overlay = document.createElement("div");
+    overlay.className = "overlay";
+    overlay.innerHTML =
+      '<div class="sheet">' +
+        '<h2>"'+escapeHtml(route.name)+'" rotasını paylaş</h2>' +
+        '<p class="hint">Bir dosya biçimi seç.</p>' +
+        '<button type="button" class="format-btn" data-fmt="gpx">GPX <small>Çoğu harita/navigasyon uygulamasıyla uyumlu, en yaygın format</small></button>' +
+        '<button type="button" class="format-btn" data-fmt="kml">KML <small>Google Earth ve harita uygulamaları için</small></button>' +
+        '<button type="button" class="format-btn" data-fmt="kmz">KMZ <small>Sıkıştırılmış KML — daha küçük dosya</small></button>' +
+        '<div class="sheet-actions">' +
+          '<button class="btn btn-cancel" id="fmtCancelBtn" style="flex:1; justify-content:center; padding:12px;">Vazgeç</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+
+    overlay.querySelectorAll(".format-btn").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var fmt = btn.getAttribute("data-fmt");
+        exportRoute(route, fmt);
+        document.body.removeChild(overlay);
+      });
+    });
+    overlay.querySelector("#fmtCancelBtn").addEventListener("click", function(){
+      document.body.removeChild(overlay);
+    });
+    overlay.addEventListener("click", function(e){
+      if(e.target === overlay) document.body.removeChild(overlay);
+    });
+  }
+
+  function exportRoute(route, fmt){
+    var base = safeFilename(route.name);
+    var blob, filename, mime;
+    if(fmt === "gpx"){
+      blob = new Blob([toGPX(route)], {type:"application/gpx+xml"});
+      filename = base + ".gpx"; mime = "application/gpx+xml";
+    } else if(fmt === "kml"){
+      blob = new Blob([toKML(route)], {type:"application/vnd.google-earth.kml+xml"});
+      filename = base + ".kml"; mime = "application/vnd.google-earth.kml+xml";
+    } else {
+      blob = toKMZBlob(route);
+      filename = base + ".kmz"; mime = "application/vnd.google-earth.kmz";
+    }
+    shareBlob(blob, filename, mime);
+  }
+
+  function shareBlob(blob, filename, mime){
+    if(navigator.share && navigator.canShare){
+      var file = new File([blob], filename, {type: mime});
+      if(navigator.canShare({files:[file]})){
+        navigator.share({files:[file], title: filename}).catch(function(){});
+        return;
+      }
+    }
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+    toast("Dosya indirildi: " + filename);
+  }
+
+  // ---------- init ----------
+  fabBtn.addEventListener("click", function(){
+    if(activeTab === "yerler") capturePlace(); else toggleRecording();
+  });
+
   render();
+  renderRoutes();
+  setActiveTab("yerler");
   watchLiveLocation();
 })();
 </script>
