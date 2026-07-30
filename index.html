@@ -207,11 +207,15 @@
     <p>Aşağıdaki "Buradayım" butonuna basarak bulunduğun yeri kaydet.</p>
   </div>
 
+  <div id="importRow" style="display:none; margin-bottom:14px;">
+    <button type="button" class="photo-btn" id="importBtn" style="width:100%; text-align:center;">📥 Dosyadan rota içe aktar (GPX / KML / KMZ)</button>
+    <input type="file" id="importFileInput" accept=".gpx,.kml,.kmz" style="display:none;">
+  </div>
   <div id="routesList" style="display:none;"></div>
   <div class="empty" id="routesEmptyState" style="display:none;">
     <div class="glyph">🧭</div>
     <p><strong>Henüz kaydedilmiş rota yok.</strong></p>
-    <p>Aşağıdaki "Rota Başlat" butonuna basıp yürüyüşe/yola çık, bitirince "Durdur ve Kaydet" ile kaydet.</p>
+    <p>Aşağıdaki "Rota Başlat" butonuna basıp yürüyüşe/yola çık, bitirince "Durdur ve Kaydet" ile kaydet. Ya da yukarıdan hazır bir dosya içe aktar.</p>
   </div>
 </main>
 
@@ -240,6 +244,9 @@
   var recStatsEl = document.getElementById("recStats");
   var tabYerlerBtn = document.getElementById("tabYerler");
   var tabRotalarBtn = document.getElementById("tabRotalar");
+  var importRowEl = document.getElementById("importRow");
+  var importBtn = document.getElementById("importBtn");
+  var importFileInput = document.getElementById("importFileInput");
 
   var currentPos = null;
   var pendingCapture = null;
@@ -346,6 +353,7 @@
     tabRotalarBtn.classList.toggle("active", tab === "rotalar");
     listEl.style.display = tab === "yerler" ? "" : "none";
     routesListEl.style.display = tab === "rotalar" ? "" : "none";
+    importRowEl.style.display = tab === "rotalar" ? "block" : "none";
     if(tab === "yerler") render(); else renderRoutes();
     updateFab();
   }
@@ -649,24 +657,59 @@
     if(recording) stopRecording(); else startRecording();
   }
 
+  function pushFilteredPoint(lat, lng, ts){
+    if(!recording) return;
+    var p = {lat: lat, lng: lng, ts: ts};
+    var last = recording.points[recording.points.length - 1];
+    if(!last || haversine(last.lat, last.lng, p.lat, p.lng) > 3 || (p.ts - last.ts) > 6000){
+      recording.points.push(p);
+    }
+    currentPos = {lat: lat, lng: lng, accuracy: currentPos ? currentPos.accuracy : 0};
+    updateRecBanner();
+  }
+
   function startRecording(){
-    if(!navigator.geolocation){ toast("Cihaz konum servisini desteklemiyor."); return; }
-    recording = {points: [], startTime: Date.now(), watchId: null, timerId: null};
+    recording = {points: [], startTime: Date.now(), watchId: null, timerId: null, native: false, watcherPromise: null};
     recBanner.style.display = "flex";
     updateFab();
     updateRecBanner();
-    recording.watchId = navigator.geolocation.watchPosition(function(pos){
-      if(!recording) return;
-      var p = {lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now()};
-      var last = recording.points[recording.points.length - 1];
-      if(!last || haversine(last.lat, last.lng, p.lat, p.lng) > 1 || (p.ts - last.ts) > 2000){
-        recording.points.push(p);
-      }
-      currentPos = {lat: p.lat, lng: p.lng, accuracy: pos.coords.accuracy};
-      updateRecBanner();
-    }, function(err){
-      toast("Konum hatası: " + geoErrorText(err));
-    }, {enableHighAccuracy:true, maximumAge:1000, timeout:20000});
+
+    if(isNativeApp()){
+      recording.native = true;
+      var cap = window.AppCap;
+      recStatsEl.textContent = "Konum izni bekleniyor…";
+      recording.watcherPromise = cap.BackgroundGeolocation.addWatcher({
+        backgroundMessage: "Rota kaydediliyor. İptal etmek için dokun.",
+        backgroundTitle: "Konum İşaretleri rota kaydediyor",
+        requestPermissions: true,
+        stale: false,
+        distanceFilter: 0
+      }, function(location, error){
+        if(!recording) return;
+        if(error){
+          if(error.code === "NOT_AUTHORIZED"){
+            toast("Konum izni verilmedi. Ayarlardan izin vermen gerekiyor.");
+          } else {
+            toast("Konum hatası: " + (error.message || error.code || "bilinmeyen"));
+          }
+          return;
+        }
+        pushFilteredPoint(location.latitude, location.longitude, Date.now());
+      });
+      recording.watcherPromise.then(function(id){
+        if(recording) recording.watchId = id;
+      }).catch(function(err){
+        toast("Arka plan konum başlatılamadı: " + (err && err.message ? err.message : "bilinmeyen hata"));
+      });
+    } else {
+      if(!navigator.geolocation){ toast("Cihaz konum servisini desteklemiyor."); recording = null; recBanner.style.display = "none"; updateFab(); return; }
+      recording.watchId = navigator.geolocation.watchPosition(function(pos){
+        pushFilteredPoint(pos.coords.latitude, pos.coords.longitude, Date.now());
+      }, function(err){
+        toast("Konum hatası: " + geoErrorText(err));
+      }, {enableHighAccuracy:true, maximumAge:2000, timeout:20000});
+    }
+
     recording.timerId = setInterval(updateRecBanner, 1000);
   }
 
@@ -679,7 +722,15 @@
 
   function stopRecording(){
     if(!recording) return;
-    navigator.geolocation.clearWatch(recording.watchId);
+    if(recording.native){
+      if(recording.watcherPromise){
+        recording.watcherPromise.then(function(id){
+          return window.AppCap.BackgroundGeolocation.removeWatcher({id: id});
+        }).catch(function(){});
+      }
+    } else if(recording.watchId !== null){
+      navigator.geolocation.clearWatch(recording.watchId);
+    }
     clearInterval(recording.timerId);
     var points = recording.points;
     var startTime = recording.startTime;
@@ -694,7 +745,7 @@
     openRouteSaveSheet(points, startTime, duration);
   }
 
-  function openRouteSaveSheet(points, startTime, duration){
+  function openRouteSaveSheet(points, startTime, duration, presetName){
     var dist = routeDistance(points);
     var overlay = document.createElement("div");
     overlay.className = "overlay";
@@ -709,11 +760,11 @@
           '</div>' +
         '</div>' +
         '<div class="field"><label>Bu rotaya bir ad ver</label>' +
-          '<input type="text" id="routeNameInput" placeholder="Örn. Sabah yürüyüşü, okul dönüşü…" maxlength="60">' +
+          '<input type="text" id="routeNameInput" placeholder="Örn. Sabah yürüyüşü, okul dönüşü…" maxlength="60" value="'+(presetName ? escapeHtml(presetName) : "")+'">' +
         '</div>' +
         '<div class="sheet-actions">' +
           '<button class="btn btn-cancel" id="routeCancelBtn">Vazgeç</button>' +
-          '<button class="btn btn-save" id="routeSaveBtn" disabled>Kaydet</button>' +
+          '<button class="btn btn-save" id="routeSaveBtn" '+(presetName && presetName.trim() ? "" : "disabled")+'>Kaydet</button>' +
         '</div>' +
       '</div>';
     document.body.appendChild(overlay);
@@ -721,7 +772,7 @@
     var nameInput = overlay.querySelector("#routeNameInput");
     var saveBtn = overlay.querySelector("#routeSaveBtn");
     nameInput.addEventListener("input", function(){ saveBtn.disabled = nameInput.value.trim().length === 0; });
-    nameInput.focus();
+    if(!presetName) nameInput.focus();
 
     overlay.querySelector("#routeCancelBtn").addEventListener("click", function(){
       document.body.removeChild(overlay);
@@ -835,6 +886,108 @@
     var zipBytes = createZip([{name:"doc.kml", data: kmlBytes}], new Date(route.timestamp));
     return new Blob([zipBytes], {type:"application/vnd.google-earth.kmz"});
   }
+
+  // ---------- route import: GPX / KML / KMZ ----------
+  function fillSyntheticTimestamps(points){
+    var hasReal = points.some(function(p){ return p.ts; });
+    var base = Date.now() - points.length * 1000;
+    points.forEach(function(p, i){
+      if(!p.ts){
+        p.ts = hasReal ? (i > 0 ? points[i-1].ts : base) : (base + i * 1000);
+      }
+    });
+  }
+
+  function parseGPX(text, fallbackName){
+    var xml = new DOMParser().parseFromString(text, "application/xml");
+    if(xml.querySelector("parsererror")) throw new Error("GPX dosyası okunamadı.");
+    var nodeList = xml.querySelectorAll("trkpt");
+    if(!nodeList.length) nodeList = xml.querySelectorAll("rtept");
+    if(!nodeList.length) throw new Error("Dosyada rota noktası bulunamadı.");
+    var points = [];
+    nodeList.forEach(function(node){
+      var lat = parseFloat(node.getAttribute("lat"));
+      var lon = parseFloat(node.getAttribute("lon"));
+      if(isNaN(lat) || isNaN(lon)) return;
+      var timeEl = node.querySelector("time");
+      var ts = timeEl ? Date.parse(timeEl.textContent) : NaN;
+      points.push({lat: lat, lng: lon, ts: isNaN(ts) ? null : ts});
+    });
+    if(!points.length) throw new Error("Dosyada geçerli koordinat bulunamadı.");
+    fillSyntheticTimestamps(points);
+    var nameEl = xml.querySelector("trk > name, rte > name, name");
+    var name = (nameEl && nameEl.textContent.trim()) || fallbackName;
+    return {name: name, points: points};
+  }
+
+  function parseKML(text, fallbackName){
+    var xml = new DOMParser().parseFromString(text, "application/xml");
+    if(xml.querySelector("parsererror")) throw new Error("KML dosyası okunamadı.");
+    var coordEls = xml.querySelectorAll("coordinates");
+    if(!coordEls.length) throw new Error("Dosyada rota koordinatı bulunamadı.");
+    var points = [];
+    coordEls.forEach(function(el){
+      var raw = el.textContent.trim();
+      raw.split(/\s+/).forEach(function(tuple){
+        var parts = tuple.split(",");
+        if(parts.length >= 2){
+          var lng = parseFloat(parts[0]), lat = parseFloat(parts[1]);
+          if(!isNaN(lat) && !isNaN(lng)) points.push({lat: lat, lng: lng, ts: null});
+        }
+      });
+    });
+    if(!points.length) throw new Error("Dosyada geçerli koordinat bulunamadı.");
+    fillSyntheticTimestamps(points);
+    var nameEl = xml.querySelector("Placemark > name, Document > name, name");
+    var name = (nameEl && nameEl.textContent.trim()) || fallbackName;
+    return {name: name, points: points};
+  }
+
+  function parseKMZ(arrayBuffer, fallbackName){
+    var cap = window.AppCap;
+    if(!cap || !cap.unzipSync) throw new Error("KMZ okuma bileşeni yüklenemedi.");
+    var files = cap.unzipSync(new Uint8Array(arrayBuffer));
+    var kmlEntryName = Object.keys(files).find(function(n){ return /\.kml$/i.test(n); });
+    if(!kmlEntryName) throw new Error("KMZ içinde .kml dosyası bulunamadı.");
+    var text = cap.strFromU8(files[kmlEntryName]);
+    return parseKML(text, fallbackName);
+  }
+
+  function handleImportFile(file){
+    var ext = (file.name.split(".").pop() || "").toLowerCase();
+    var fallbackName = file.name.replace(/\.(gpx|kml|kmz)$/i, "");
+    var reader = new FileReader();
+    reader.onerror = function(){ toast("Dosya okunamadı."); };
+    if(ext === "kmz"){
+      reader.onload = function(e){
+        try{ confirmImportedRoute(parseKMZ(e.target.result, fallbackName)); }
+        catch(err){ toast("İçe aktarılamadı: " + err.message); }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      reader.onload = function(e){
+        try{
+          var parsed = (ext === "kml") ? parseKML(e.target.result, fallbackName) : parseGPX(e.target.result, fallbackName);
+          confirmImportedRoute(parsed);
+        }catch(err){ toast("İçe aktarılamadı: " + err.message); }
+      };
+      reader.readAsText(file);
+    }
+  }
+
+  function confirmImportedRoute(parsed){
+    var startTime = parsed.points[0].ts || Date.now();
+    var endTime = parsed.points[parsed.points.length - 1].ts || startTime;
+    var duration = Math.max(0, endTime - startTime);
+    openRouteSaveSheet(parsed.points, startTime, duration, parsed.name);
+  }
+
+  importBtn.addEventListener("click", function(){ importFileInput.click(); });
+  importFileInput.addEventListener("change", function(){
+    var file = importFileInput.files[0];
+    importFileInput.value = "";
+    if(file) handleImportFile(file);
+  });
 
   function openShareFormatSheet(route){
     var overlay = document.createElement("div");

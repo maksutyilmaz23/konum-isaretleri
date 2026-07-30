@@ -33,7 +33,7 @@ jobs:
           mkdir www
           cp index.html www/index.html
           npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/filesystem @capacitor/share
+          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/filesystem @capacitor/share @capacitor-community/background-geolocation fflate
           npm install --save-dev esbuild
           npx esbuild capacitor-entry.js --bundle --outfile=www/capacitor-bundle.js --format=iife
           npx cap init "Konum Isaretleri" "com.mesut.konumisaretleri" --web-dir www
