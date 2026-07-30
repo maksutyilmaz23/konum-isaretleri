@@ -659,7 +659,7 @@
       if(!recording) return;
       var p = {lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now()};
       var last = recording.points[recording.points.length - 1];
-      if(!last || haversine(last.lat, last.lng, p.lat, p.lng) > 8 || (p.ts - last.ts) > 15000){
+      if(!last || haversine(last.lat, last.lng, p.lat, p.lng) > 3 || (p.ts - last.ts) > 6000){
         recording.points.push(p);
       }
       currentPos = {lat: p.lat, lng: p.lng, accuracy: pos.coords.accuracy};
