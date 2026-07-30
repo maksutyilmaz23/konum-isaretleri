@@ -222,6 +222,7 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="capacitor-bundle.js"></script>
 <script>
 (function(){
   "use strict";
@@ -420,6 +421,28 @@
   function shareItem(item){
     var mapsLink = "https://www.google.com/maps?q=" + item.lat + "," + item.lng;
     var text = item.name + "\n" + fmtCoord(item.lat, item.lng) + "\n" + mapsLink;
+
+    if(isNativeApp()){
+      var cap = window.AppCap;
+      if(item.photo){
+        fetch(item.photo).then(function(r){ return r.blob(); }).then(function(blob){
+          return blob.arrayBuffer();
+        }).then(function(buf){
+          var base64 = arrayBufferToBase64(buf);
+          return cap.Filesystem.writeFile({ path: safeFilename(item.name) + ".jpg", data: base64, directory: cap.Directory.Cache });
+        }).then(function(result){
+          return cap.Share.share({ title: item.name, text: text, url: result.uri, dialogTitle: "Nasıl paylaşmak istersin?" });
+        }).catch(function(err){
+          toast("Paylaşım açılamadı: " + (err && err.message ? err.message : "bilinmeyen hata"));
+        });
+      } else {
+        cap.Share.share({ title: item.name, text: text, dialogTitle: "Nasıl paylaşmak istersin?" }).catch(function(err){
+          toast("Paylaşım açılamadı: " + (err && err.message ? err.message : "bilinmeyen hata"));
+        });
+      }
+      return;
+    }
+
     if(navigator.share){
       var payload = {title: item.name, text: text};
       if(item.photo && navigator.canShare){
@@ -860,7 +883,25 @@
     shareBlob(blob, filename, mime);
   }
 
+  function arrayBufferToBase64(buffer){
+    var bytes = new Uint8Array(buffer);
+    var binary = "";
+    var chunk = 0x8000;
+    for(var i=0;i<bytes.length;i+=chunk){
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i+chunk));
+    }
+    return btoa(binary);
+  }
+
+  function isNativeApp(){
+    return !!(window.AppCap && window.AppCap.Capacitor && window.AppCap.Capacitor.isNativePlatform && window.AppCap.Capacitor.isNativePlatform());
+  }
+
   function shareBlob(blob, filename, mime){
+    if(isNativeApp()){
+      shareBlobNative(blob, filename, mime);
+      return;
+    }
     if(navigator.share && navigator.canShare){
       var file = new File([blob], filename, {type: mime});
       if(navigator.canShare({files:[file]})){
@@ -874,6 +915,26 @@
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
     toast("Dosya indirildi: " + filename);
+  }
+
+  function shareBlobNative(blob, filename, mime){
+    var cap = window.AppCap;
+    blob.arrayBuffer().then(function(buf){
+      var base64 = arrayBufferToBase64(buf);
+      return cap.Filesystem.writeFile({
+        path: filename,
+        data: base64,
+        directory: cap.Directory.Cache
+      });
+    }).then(function(result){
+      return cap.Share.share({
+        title: filename,
+        url: result.uri,
+        dialogTitle: "Nasıl paylaşmak istersin?"
+      });
+    }).catch(function(err){
+      toast("Paylaşım açılamadı: " + (err && err.message ? err.message : "bilinmeyen hata"));
+    });
   }
 
   // ---------- init ----------
