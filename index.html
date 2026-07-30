@@ -659,14 +659,14 @@
       if(!recording) return;
       var p = {lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now()};
       var last = recording.points[recording.points.length - 1];
-      if(!last || haversine(last.lat, last.lng, p.lat, p.lng) > 3 || (p.ts - last.ts) > 6000){
+      if(!last || haversine(last.lat, last.lng, p.lat, p.lng) > 1 || (p.ts - last.ts) > 2000){
         recording.points.push(p);
       }
       currentPos = {lat: p.lat, lng: p.lng, accuracy: pos.coords.accuracy};
       updateRecBanner();
     }, function(err){
       toast("Konum hatası: " + geoErrorText(err));
-    }, {enableHighAccuracy:true, maximumAge:2000, timeout:20000});
+    }, {enableHighAccuracy:true, maximumAge:1000, timeout:20000});
     recording.timerId = setInterval(updateRecBanner, 1000);
   }
 
