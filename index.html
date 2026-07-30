@@ -209,7 +209,7 @@
 
   <div id="importRow" style="display:none; margin-bottom:14px;">
     <button type="button" class="photo-btn" id="importBtn" style="width:100%; text-align:center;">📥 Dosyadan rota içe aktar (GPX / KML / KMZ)</button>
-    <input type="file" id="importFileInput" accept=".gpx,.kml,.kmz" style="display:none;">
+    <input type="file" id="importFileInput" accept="*/*" style="display:none;">
   </div>
   <div id="routesList" style="display:none;"></div>
   <div class="empty" id="routesEmptyState" style="display:none;">
@@ -955,6 +955,10 @@
 
   function handleImportFile(file){
     var ext = (file.name.split(".").pop() || "").toLowerCase();
+    if(["gpx","kml","kmz"].indexOf(ext) === -1){
+      toast("Desteklenmeyen dosya türü. Lütfen .gpx, .kml veya .kmz seç.");
+      return;
+    }
     var fallbackName = file.name.replace(/\.(gpx|kml|kmz)$/i, "");
     var reader = new FileReader();
     reader.onerror = function(){ toast("Dosya okunamadı."); };
