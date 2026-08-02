@@ -667,11 +667,13 @@
       '<p class="card-meta">'+fmtDate(route.timestamp)+'</p>' +
       '<p class="card-meta">'+fmtDist(route.distance)+' · '+fmtDuration(route.duration)+' · '+route.points.length+' nokta</p>' +
       '<div class="card-actions">' +
+        '<button class="btn btn-edit" data-act="view">👁 Rotayı Gör</button>' +
         '<button class="btn btn-go" data-act="follow">↗ Tekrar Git</button>' +
         '<button class="btn btn-share" data-act="share">⇪ Paylaş</button>' +
         '<button class="btn btn-edit" data-act="edit">✎ Ad değiştir</button>' +
         '<button class="btn btn-del" data-act="del">🗑 Sil</button>' +
       '</div>';
+    card.querySelector('[data-act="view"]').addEventListener("click", function(){ openRouteView(route); });
     card.querySelector('[data-act="follow"]').addEventListener("click", function(){ openRouteFollow(route); });
     card.querySelector('[data-act="share"]').addEventListener("click", function(){ openShareFormatSheet(route); });
     card.querySelector('[data-act="edit"]').addEventListener("click", function(){ editRouteName(route); });
@@ -773,8 +775,9 @@
     if(refPolyline){ leafletMap.removeLayer(refPolyline); }
     if(liveMarker){ leafletMap.removeLayer(liveMarker); liveMarker = null; }
 
-    var latlngs = route.points.map(function(p){ return [p.lat, p.lng]; });
-    refPolyline = L.polyline(latlngs, {color:"#C98A2C", weight:5, dashArray:"1,10", lineCap:"round"}).addTo(leafletMap);
+    var smooth = simplifyPoints(route.points, 5);
+    var latlngs = smooth.map(function(p){ return [p.lat, p.lng]; });
+    refPolyline = L.polyline(latlngs, {color:"#C98A2C", weight:5, lineCap:"round", lineJoin:"round"}).addTo(leafletMap);
     leafletMap.fitBounds(refPolyline.getBounds(), {padding:[24,24]});
     setTimeout(function(){ leafletMap.invalidateSize(); }, 80);
 
@@ -791,6 +794,33 @@
     });
 
     startFollowWatch();
+  }
+
+  function openRouteView(route){
+    if(typeof L === "undefined"){ toast("Harita yüklenemedi, internet bağlantını kontrol et."); return; }
+    setActiveTab("rotalar");
+    ensureMap();
+    stopFollowWatch();
+    mapMode = "view";
+    mapTitleEl.textContent = "👁 " + route.name;
+    mapLegendEl.innerHTML = '<span class="sw" style="background:#C98A2C;"></span> Rota';
+    mapWrapEl.style.display = "block";
+
+    if(recordPolyline){ leafletMap.removeLayer(recordPolyline); recordPolyline = null; }
+    if(refPolyline){ leafletMap.removeLayer(refPolyline); }
+    if(liveMarker){ leafletMap.removeLayer(liveMarker); liveMarker = null; }
+
+    var smooth = simplifyPoints(route.points, 5);
+    var latlngs = smooth.map(function(p){ return [p.lat, p.lng]; });
+    refPolyline = L.polyline(latlngs, {color:"#C98A2C", weight:5, lineCap:"round", lineJoin:"round"}).addTo(leafletMap);
+    leafletMap.fitBounds(refPolyline.getBounds(), {padding:[24,24]});
+    setTimeout(function(){ leafletMap.invalidateSize(); }, 80);
+
+    var startPoint = route.points[0];
+    mapFootEl.innerHTML = '<button type="button" class="btn btn-go" id="mapGoStartBtn3" style="flex:1;">↗ Başlangıca git</button>';
+    document.getElementById("mapGoStartBtn3").addEventListener("click", function(){
+      goTo({lat: startPoint.lat, lng: startPoint.lng, name: route.name + " - başlangıç"});
+    });
   }
 
   function startFollowWatch(){
@@ -968,15 +998,17 @@
     saveBtn.addEventListener("click", function(){
       var name = nameInput.value.trim();
       if(!name) return;
-      var items = loadRoutes();
-      items.push({
+      var newRoute = {
         id: uid(), name: name, timestamp: startTime, duration: duration,
         distance: dist, points: points
-      });
+      };
+      var items = loadRoutes();
+      items.push(newRoute);
       saveRoutes(items);
       document.body.removeChild(overlay);
       renderRoutes();
       toast("Rota kaydedildi.");
+      openRouteView(newRoute);
     });
 
     overlay.addEventListener("click", function(e){
@@ -984,9 +1016,45 @@
     });
   }
 
+  // ---------- route smoothing (Douglas-Peucker) ----------
+  function perpDistanceMeters(p, a, b){
+    var mPerDegLat = 111320;
+    var mPerDegLng = 111320 * Math.cos(a.lat * Math.PI / 180);
+    var ax = 0, ay = 0;
+    var bx = (b.lng - a.lng) * mPerDegLng, by = (b.lat - a.lat) * mPerDegLat;
+    var px = (p.lng - a.lng) * mPerDegLng, py = (p.lat - a.lat) * mPerDegLat;
+    var dx = bx - ax, dy = by - ay;
+    var lenSq = dx*dx + dy*dy;
+    if(lenSq === 0) return Math.sqrt(px*px + py*py);
+    var t = Math.max(0, Math.min(1, (px*dx + py*dy) / lenSq));
+    var projx = ax + t*dx, projy = ay + t*dy;
+    var ddx = px - projx, ddy = py - projy;
+    return Math.sqrt(ddx*ddx + ddy*ddy);
+  }
+  function douglasPeucker(points, tolerance){
+    if(points.length < 3) return points.slice();
+    var a = points[0], b = points[points.length - 1];
+    var maxDist = 0, index = 0;
+    for(var i = 1; i < points.length - 1; i++){
+      var d = perpDistanceMeters(points[i], a, b);
+      if(d > maxDist){ maxDist = d; index = i; }
+    }
+    if(maxDist > tolerance){
+      var left = douglasPeucker(points.slice(0, index + 1), tolerance);
+      var right = douglasPeucker(points.slice(index), tolerance);
+      return left.slice(0, -1).concat(right);
+    }
+    return [a, b];
+  }
+  function simplifyPoints(points, toleranceMeters){
+    if(!points || points.length < 3) return points ? points.slice() : [];
+    return douglasPeucker(points, toleranceMeters || 5);
+  }
+
   // ---------- route export: GPX / KML / KMZ ----------
   function toGPX(route){
-    var pts = route.points.map(function(p){
+    var smooth = simplifyPoints(route.points, 5);
+    var pts = smooth.map(function(p){
       return '<trkpt lat="'+p.lat+'" lon="'+p.lng+'"><time>'+new Date(p.ts).toISOString()+'</time></trkpt>';
     }).join("");
     return '<?xml version="1.0" encoding="UTF-8"?>\n' +
@@ -996,7 +1064,8 @@
   }
 
   function toKML(route){
-    var coords = route.points.map(function(p){ return p.lng+","+p.lat+",0"; }).join(" ");
+    var smooth = simplifyPoints(route.points, 5);
+    var coords = smooth.map(function(p){ return p.lng+","+p.lat+",0"; }).join(" ");
     return '<?xml version="1.0" encoding="UTF-8"?>\n' +
       '<kml xmlns="http://www.opengis.net/kml/2.2"><Document>\n' +
       '<name>'+escapeXml(route.name)+'</name>\n' +
