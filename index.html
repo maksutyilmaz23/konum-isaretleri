@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Konum İşaretleri</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   :root{
     --bg:#F5F6F1;
@@ -60,6 +62,30 @@
   }
   .rec-dot{width:9px; height:9px; border-radius:50%; background:var(--rust); flex-shrink:0; animation:pulse 1.2s infinite;}
   @keyframes pulse{0%{opacity:1;}50%{opacity:.25;}100%{opacity:1;}}
+
+  .map-wrap{
+    max-width:640px; margin:10px auto 0; padding:0 16px;
+  }
+  .map-card{
+    background:var(--surface); border:1px solid var(--line); border-radius:14px; overflow:hidden;
+  }
+  .map-head{
+    display:flex; align-items:center; justify-content:space-between; padding:10px 14px;
+    border-bottom:1px solid var(--line);
+  }
+  .map-title{font-size:13px; font-weight:800; margin:0; display:flex; align-items:center; gap:8px;}
+  .map-legend{display:flex; align-items:center; gap:5px; font-size:11px; color:var(--muted);}
+  .map-legend .sw{width:14px; height:3px; border-radius:2px; display:inline-block;}
+  .map-close{
+    border:none; background:#EFEDE6; color:var(--ink); width:28px; height:28px; border-radius:50%;
+    font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  }
+  #mapCanvas{width:100%; height:280px;}
+  .map-foot{
+    display:flex; gap:8px; flex-wrap:wrap; padding:10px 14px;
+    border-top:1px solid var(--line);
+  }
+  .map-foot .btn{flex:1; justify-content:center;}
 
   .empty{
     text-align:center; padding:60px 20px; color:var(--muted);
@@ -199,6 +225,18 @@
   <span id="recStats">Rota kaydediliyor…</span>
 </div>
 
+<div class="map-wrap" id="mapWrap" style="display:none;">
+  <div class="map-card">
+    <div class="map-head">
+      <p class="map-title" id="mapTitle">🗺️ Harita</p>
+      <div class="map-legend" id="mapLegend"></div>
+      <button type="button" class="map-close" id="mapCloseBtn">✕</button>
+    </div>
+    <div id="mapCanvas"></div>
+    <div class="map-foot" id="mapFoot"></div>
+  </div>
+</div>
+
 <main>
   <div id="list"></div>
   <div class="empty" id="emptyState" style="display:none;">
@@ -247,6 +285,11 @@
   var importRowEl = document.getElementById("importRow");
   var importBtn = document.getElementById("importBtn");
   var importFileInput = document.getElementById("importFileInput");
+  var mapWrapEl = document.getElementById("mapWrap");
+  var mapTitleEl = document.getElementById("mapTitle");
+  var mapLegendEl = document.getElementById("mapLegend");
+  var mapFootEl = document.getElementById("mapFoot");
+  var mapCloseBtn = document.getElementById("mapCloseBtn");
 
   var currentPos = null;
   var pendingCapture = null;
@@ -624,10 +667,12 @@
       '<p class="card-meta">'+fmtDate(route.timestamp)+'</p>' +
       '<p class="card-meta">'+fmtDist(route.distance)+' · '+fmtDuration(route.duration)+' · '+route.points.length+' nokta</p>' +
       '<div class="card-actions">' +
+        '<button class="btn btn-go" data-act="follow">↗ Tekrar Git</button>' +
         '<button class="btn btn-share" data-act="share">⇪ Paylaş</button>' +
         '<button class="btn btn-edit" data-act="edit">✎ Ad değiştir</button>' +
         '<button class="btn btn-del" data-act="del">🗑 Sil</button>' +
       '</div>';
+    card.querySelector('[data-act="follow"]').addEventListener("click", function(){ openRouteFollow(route); });
     card.querySelector('[data-act="share"]').addEventListener("click", function(){ openShareFormatSheet(route); });
     card.querySelector('[data-act="edit"]').addEventListener("click", function(){ editRouteName(route); });
     card.querySelector('[data-act="del"]').addEventListener("click", function(){ deleteRoute(route); });
@@ -652,6 +697,142 @@
     toast("Silindi.");
   }
 
+  // ---------- map view (Leaflet) ----------
+  var leafletMap = null;
+  var mapMode = null; // "recording" | "follow"
+  var recordPolyline = null;
+  var refPolyline = null;
+  var liveMarker = null;
+  var followWatchId = null;
+
+  function ensureMap(){
+    if(leafletMap || typeof L === "undefined") return;
+    leafletMap = L.map("mapCanvas", {zoomControl:true, attributionControl:false});
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom:19, subdomains:["a","b","c"]
+    }).addTo(leafletMap);
+  }
+
+  function makeLiveMarker(lat, lng, color){
+    return L.circleMarker([lat, lng], {
+      radius:8, color:"#fff", weight:2, fillColor: color || "#2F6F4E", fillOpacity:1
+    });
+  }
+
+  function openRecordingMap(){
+    if(typeof L === "undefined"){ toast("Harita yüklenemedi, internet bağlantını kontrol et."); return; }
+    stopFollowWatch();
+    ensureMap();
+    mapMode = "recording";
+    mapTitleEl.textContent = "🔴 Rota kaydediliyor";
+    mapLegendEl.innerHTML = '<span class="sw" style="background:#2F6F4E;"></span> Kaydedilen yol';
+    mapFootEl.innerHTML = "";
+    mapWrapEl.style.display = "block";
+
+    if(recordPolyline){ leafletMap.removeLayer(recordPolyline); }
+    if(liveMarker){ leafletMap.removeLayer(liveMarker); }
+    recordPolyline = L.polyline([], {color:"#2F6F4E", weight:4}).addTo(leafletMap);
+    liveMarker = null;
+
+    if(refPolyline){
+      mapLegendEl.innerHTML =
+        '<span class="sw" style="background:#C98A2C;"></span> Referans' +
+        '&nbsp;&nbsp;<span class="sw" style="background:#2F6F4E;"></span> Şimdiki kayıt';
+    }
+
+    var center = currentPos ? [currentPos.lat, currentPos.lng] : [39.0, 35.0];
+    leafletMap.setView(center, currentPos ? 17 : 6);
+    setTimeout(function(){ leafletMap.invalidateSize(); }, 80);
+  }
+
+  function updateRecordingMap(lat, lng, pointAdded){
+    if(!leafletMap || mapMode !== "recording") return;
+    if(!liveMarker){
+      liveMarker = makeLiveMarker(lat, lng, "#2F6F4E").addTo(leafletMap);
+    } else {
+      liveMarker.setLatLng([lat, lng]);
+    }
+    if(pointAdded && recordPolyline){
+      recordPolyline.addLatLng([lat, lng]);
+    }
+    leafletMap.panTo([lat, lng], {animate:true});
+  }
+
+  function openRouteFollow(route){
+    if(typeof L === "undefined"){ toast("Harita yüklenemedi, internet bağlantını kontrol et."); return; }
+    setActiveTab("rotalar");
+    ensureMap();
+    mapMode = "follow";
+    mapTitleEl.textContent = "🧭 " + route.name;
+    mapLegendEl.innerHTML =
+      '<span class="sw" style="background:#C98A2C;"></span> Rota' +
+      '&nbsp;&nbsp;<span class="sw" style="background:#2F6F4E;"></span> Sen';
+    mapWrapEl.style.display = "block";
+
+    if(recordPolyline){ leafletMap.removeLayer(recordPolyline); recordPolyline = null; }
+    if(refPolyline){ leafletMap.removeLayer(refPolyline); }
+    if(liveMarker){ leafletMap.removeLayer(liveMarker); liveMarker = null; }
+
+    var latlngs = route.points.map(function(p){ return [p.lat, p.lng]; });
+    refPolyline = L.polyline(latlngs, {color:"#C98A2C", weight:5, dashArray:"1,10", lineCap:"round"}).addTo(leafletMap);
+    leafletMap.fitBounds(refPolyline.getBounds(), {padding:[24,24]});
+    setTimeout(function(){ leafletMap.invalidateSize(); }, 80);
+
+    var startPoint = route.points[0];
+    mapFootEl.innerHTML =
+      '<button type="button" class="btn btn-go" id="mapGoStartBtn" style="flex:1;">↗ Başlangıca git</button>' +
+      '<button type="button" class="btn btn-share" id="mapRecordFollowBtn" style="flex:1;">▶ Bu rotayı takip ederek kaydet</button>';
+    document.getElementById("mapGoStartBtn").addEventListener("click", function(){
+      goTo({lat: startPoint.lat, lng: startPoint.lng, name: route.name + " - başlangıç"});
+    });
+    document.getElementById("mapRecordFollowBtn").addEventListener("click", function(){
+      setActiveTab("rotalar");
+      toggleRecording();
+    });
+
+    startFollowWatch();
+  }
+
+  function startFollowWatch(){
+    stopFollowWatch();
+    if(!navigator.geolocation) return;
+    followWatchId = navigator.geolocation.watchPosition(function(pos){
+      if(mapMode !== "follow" || !leafletMap) return;
+      var lat = pos.coords.latitude, lng = pos.coords.longitude;
+      currentPos = {lat:lat, lng:lng, accuracy: pos.coords.accuracy};
+      if(!liveMarker){ liveMarker = makeLiveMarker(lat, lng, "#2F6F4E").addTo(leafletMap); }
+      else { liveMarker.setLatLng([lat, lng]); }
+    }, function(){ /* sessizce yoksay, harita yine referans rotayı gösterir */ },
+    {enableHighAccuracy:true, maximumAge:3000, timeout:20000});
+  }
+
+  function stopFollowWatch(){
+    if(followWatchId !== null && navigator.geolocation){
+      navigator.geolocation.clearWatch(followWatchId);
+    }
+    followWatchId = null;
+  }
+
+  function closeMapView(){
+    mapWrapEl.style.display = "none";
+    if(mapMode === "follow") stopFollowWatch();
+    if(leafletMap){
+      if(recordPolyline){ leafletMap.removeLayer(recordPolyline); recordPolyline = null; }
+      if(refPolyline){ leafletMap.removeLayer(refPolyline); refPolyline = null; }
+      if(liveMarker){ leafletMap.removeLayer(liveMarker); liveMarker = null; }
+    }
+    mapMode = null;
+  }
+
+  mapCloseBtn.addEventListener("click", function(){
+    // Kayıt devam ediyorsa haritayı kapatmak kaydı durdurmaz, sadece görünümü gizler.
+    if(recording && mapMode === "recording"){
+      mapWrapEl.style.display = "none";
+      return;
+    }
+    closeMapView();
+  });
+
   // ---------- recording ----------
   function toggleRecording(){
     if(recording) stopRecording(); else startRecording();
@@ -661,11 +842,14 @@
     if(!recording) return;
     var p = {lat: lat, lng: lng, ts: ts};
     var last = recording.points[recording.points.length - 1];
+    var added = false;
     if(!last || haversine(last.lat, last.lng, p.lat, p.lng) > 3 || (p.ts - last.ts) > 6000){
       recording.points.push(p);
+      added = true;
     }
     currentPos = {lat: lat, lng: lng, accuracy: currentPos ? currentPos.accuracy : 0};
     updateRecBanner();
+    updateRecordingMap(lat, lng, added);
   }
 
   function startRecording(){
@@ -673,6 +857,7 @@
     recBanner.style.display = "flex";
     updateFab();
     updateRecBanner();
+    openRecordingMap();
 
     if(isNativeApp()){
       recording.native = true;
@@ -738,6 +923,7 @@
     recBanner.style.display = "none";
     recording = null;
     updateFab();
+    closeMapView();
     if(points.length < 2){
       toast("Rota kaydı çok kısa, kaydedilmedi.");
       return;
